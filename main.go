@@ -131,7 +131,7 @@ func handleRequest(conn net.Conn, redisClient *redis.Client) {
 
 	// got identifier
 
-	err := redisClient.Set("pastey_"+identifier, string(msg), time.Hour*24)
+	err := redisClient.Set("pastey_"+identifier, string(msg), time.Hour*72)
 
 	if err.Err() != nil {
 		conn.Write([]byte("error, could not connect to db\r\n"))
