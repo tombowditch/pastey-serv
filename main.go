@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/go-redis/redis"
+	"strings"
 )
 
 const (
@@ -62,7 +63,7 @@ func handleRequest(conn net.Conn, redisClient *redis.Client) {
 	for {
 		n, err := conn.Read(buf)
 		if err != nil {
-			if err != io.EOF {
+			if err != io.EOF && !strings.Contains(err.Error(), "i/o timeout") {
 				fmt.Println("read error:", err)
 				conn.Write([]byte("read err\r\n"))
 				conn.Close()
