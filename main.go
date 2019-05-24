@@ -12,10 +12,10 @@ import (
 )
 
 const (
-	CONN_HOST  = "localhost"
+	CONN_HOST  = "0.0.0.0"
 	CONN_PORT  = "3333"
 	CONN_TYPE  = "tcp"
-	REDIS_ADDR = "localhost:6379"
+	REDIS_ADDR = "pastey-redis:6379"
 	REDIS_PASS = ""
 	REDIS_DB   = 0
 )
