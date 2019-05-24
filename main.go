@@ -73,7 +73,7 @@ func handleRequest(conn net.Conn, redisClient *redis.Client) {
 
 		bytesRead += n
 
-		if bytesRead > 1000000 {
+		if bytesRead > 250000 {
 			fmt.Println("i dont want your harddrive")
 			conn.Write([]byte("too much data\r\n"))
 			conn.Close()
