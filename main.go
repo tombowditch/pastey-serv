@@ -73,7 +73,7 @@ func handleRequest(conn net.Conn, redisClient *redis.Client) {
 
 		bytesRead += n
 
-		if bytesRead > 250000 {
+		if bytesRead > 1000000 {
 			fmt.Println("i dont want your harddrive")
 			conn.Write([]byte("too much data\r\n"))
 			conn.Close()
@@ -134,10 +134,12 @@ func handleRequest(conn net.Conn, redisClient *redis.Client) {
 	err := redisClient.Set("pastey_"+identifier, string(msg), time.Hour*24)
 
 	if err.Err() != nil {
-		conn.Write([]byte("error\r\n"))
+		conn.Write([]byte("error, could not connect to db\r\n"))
 		conn.Close()
 		return
 	}
+
+	fmt.Println("made new paste " + identifier + " for " + conn.RemoteAddr().String())
 
 	conn.Write([]byte("https://bind.sh/" + identifier + "\r\n"))
 	conn.Close()
