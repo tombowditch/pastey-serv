@@ -8,8 +8,10 @@ import (
 	"os"
 	"time"
 
-	"github.com/go-redis/redis"
 	"strings"
+
+	"github.com/go-redis/redis"
+	rate "github.com/wallstreetcn/rate/redis"
 )
 
 const (
@@ -36,6 +38,12 @@ func main() {
 		DB:       REDIS_DB,
 	})
 
+	rate.SetRedis(&rate.ConfigRedis{
+		Host: "pastey-redis",
+		Port: 6379,
+		Auth: "",
+	})
+
 	_, err = client.Ping().Result()
 	if err != nil {
 		fmt.Println("could not connect to redis")
@@ -57,6 +65,16 @@ func handleRequest(conn net.Conn, redisClient *redis.Client) {
 	msg := make([]byte, 0)
 	buf := make([]byte, 1024)
 	bytesRead := 0
+
+	// before we even try to read, do we care?
+	cip := strings.Split(conn.RemoteAddr().String(), ":")[0]
+	limiter := rate.NewLimiter(rate.Every(time.Second*5), 5, "pastey_rl_"+cip)
+	if !limiter.Allow() {
+		fmt.Println("rate limit exceeded for " + cip)
+		conn.Write([]byte("rate limit exceeded (1 paste per 5 seconds)\r\n"))
+		conn.Close()
+		return
+	}
 
 	conn.SetReadDeadline(time.Now().Add(time.Second * 5))
 
