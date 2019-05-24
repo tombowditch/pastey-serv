@@ -97,7 +97,6 @@ func handleRequest(conn net.Conn, redisClient *redis.Client) {
 			conn.Write([]byte("too much data\r\n"))
 			conn.Close()
 
-			break
 			return
 		}
 
