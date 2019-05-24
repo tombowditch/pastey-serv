@@ -98,6 +98,7 @@ func handleRequest(conn net.Conn, redisClient *redis.Client) {
 			conn.Close()
 
 			break
+			return
 		}
 
 		msg = append(msg, buf[:n]...)
