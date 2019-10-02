@@ -67,7 +67,7 @@ func handleRequest(conn net.Conn, redisClient *redis.Client) {
 	buf := make([]byte, 1024)
 	bytesRead := 0
 
-	// before we even try to read, do we care?
+	// before we even try to read, are we ratelimited?
 	cip := strings.Split(conn.RemoteAddr().String(), ":")[0]
 	limiter := rate.NewLimiter(rate.Every(time.Second*5), 5, "pastey_rl_"+cip)
 	if !limiter.Allow() {
@@ -94,8 +94,7 @@ func handleRequest(conn net.Conn, redisClient *redis.Client) {
 		bytesRead += n
 
 		if bytesRead > 250000 {
-			fmt.Println("i dont want your harddrive")
-			conn.Write([]byte("too much data\r\n"))
+			conn.Write([]byte("payload too big\r\n"))
 			conn.Close()
 
 			return
@@ -115,10 +114,9 @@ func handleRequest(conn net.Conn, redisClient *redis.Client) {
 
 		if err != nil {
 			if err == redis.Nil {
-				// value no existo
+				// value doesn't exist
 				break
 			} else if err != nil {
-				// ya fucked
 				fmt.Println(err.Error())
 				conn.Write([]byte("error\r\n"))
 				conn.Close()
@@ -142,8 +140,7 @@ func handleRequest(conn net.Conn, redisClient *redis.Client) {
 	}
 
 	if identifier == "" {
-		// ya fucked again
-		fmt.Println("identifier could not be genned")
+		fmt.Println("identifier could not be genned") // you should never realistically run into this
 		conn.Write([]byte("error\r\n"))
 		conn.Close()
 		return
@@ -160,7 +157,7 @@ func handleRequest(conn net.Conn, redisClient *redis.Client) {
 	}
 
 	if blacklisted {
-		conn.Write([]byte("blacklisted phrases, antispam ssytem\r\ncontact admin@bind.sh if this is in error\r\n"))
+		conn.Write([]byte("blacklisted phrases, antispam system\r\ncontact admin@bind.sh if this is in error\r\n"))
 		conn.Close()
 		return
 	}
