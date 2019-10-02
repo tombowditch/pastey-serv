@@ -15,12 +15,13 @@ import (
 )
 
 const (
-	CONN_HOST  = "0.0.0.0"
-	CONN_PORT  = "3333"
-	CONN_TYPE  = "tcp"
-	REDIS_ADDR = "pastey-redis:6379"
-	REDIS_PASS = ""
-	REDIS_DB   = 0
+	CONN_HOST           = "0.0.0.0"
+	CONN_PORT           = "3333"
+	CONN_TYPE           = "tcp"
+	REDIS_ADDR          = "pastey-redis:6379"
+	REDIS_PASS          = ""
+	REDIS_DB            = 0
+	BLACKLISTED_PHRASES = []string{"Cookie: mstshash=Administ", "-esystem('cmd /c echo .close", "md /c echo Set xHttp=createobjec"}
 )
 
 func main() {
@@ -149,6 +150,20 @@ func handleRequest(conn net.Conn, redisClient *redis.Client) {
 	}
 
 	// got identifier
+
+	// check if bad
+	blacklisted := false
+	for _, phrase := range BLACKLISTED_PHRASES {
+		if strings.Contains(string(msg), phrase) {
+			blacklisted = true
+		}
+	}
+
+	if blacklisted {
+		conn.Write([]byte("blacklisted phrases, antispam ssytem\r\ncontact admin@bind.sh if this is in error\r\n"))
+		conn.Close()
+		return
+	}
 
 	err := redisClient.Set("pastey_"+identifier, string(msg), time.Hour*72)
 
