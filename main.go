@@ -21,8 +21,9 @@ const (
 	REDIS_ADDR          = "pastey-redis:6379"
 	REDIS_PASS          = ""
 	REDIS_DB            = 0
-	BLACKLISTED_PHRASES = []string{"Cookie: mstshash=Administ", "-esystem('cmd /c echo .close", "md /c echo Set xHttp=createobjec"}
 )
+
+var BLACKLISTED_PHRASES = [...]string{"Cookie: mstshash=Administ", "-esystem('cmd /c echo .close", "md /c echo Set xHttp=createobjec"}
 
 func main() {
 	l, err := net.Listen(CONN_TYPE, CONN_HOST+":"+CONN_PORT)
