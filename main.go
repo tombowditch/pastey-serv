@@ -48,7 +48,7 @@ func main() {
 
 	_, err = client.Ping().Result()
 	if err != nil {
-		fmt.Println("could not connect to redis")
+		fmt.Println("Could not connect to redis")
 		os.Exit(1)
 	}
 	fmt.Println("Connected to redis")
@@ -72,8 +72,8 @@ func handleRequest(conn net.Conn, redisClient *redis.Client) {
 	cip := strings.Split(conn.RemoteAddr().String(), ":")[0]
 	limiter := rate.NewLimiter(rate.Every(time.Second*5), 5, "pastey_rl_"+cip)
 	if !limiter.Allow() {
-		fmt.Println("rate limit exceeded for " + cip)
-		conn.Write([]byte("rate limit exceeded (1 paste per 5 seconds)\r\n"))
+		fmt.Println("Rate limit exceeded by " + cip)
+		conn.Write([]byte("Rate limit exceeded (1 paste per 5 seconds)\r\n"))
 		conn.Close()
 		return
 	}
@@ -158,7 +158,7 @@ func handleRequest(conn net.Conn, redisClient *redis.Client) {
 	}
 
 	if blacklisted {
-		conn.Write([]byte("blacklisted phrases, antispam system\r\ncontact admin@bind.sh if this is in error\r\n"))
+		conn.Write([]byte("Blacklisted phrase found, antispam system\r\ncontact admin@bind.sh if this is in error\r\n"))
 		conn.Close()
 		return
 	}
