@@ -23,7 +23,7 @@ const (
 	REDIS_DB            = 0
 )
 
-var BLACKLISTED_PHRASES = [...]string{"Cookie: mstshash=Administ", "-esystem('cmd /c echo .close", "md /c echo Set xHttp=createobjec"}
+var BLACKLISTED_PHRASES = [...]string{"Cookie: mstshash=Administ", "-esystem('cmd /c echo .close", "md /c echo Set xHttp=createobject"}
 
 func main() {
 	l, err := net.Listen(CONN_TYPE, CONN_HOST+":"+CONN_PORT)
