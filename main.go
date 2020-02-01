@@ -15,12 +15,12 @@ import (
 )
 
 const (
-	CONN_HOST           = "0.0.0.0"
-	CONN_PORT           = "3333"
-	CONN_TYPE           = "tcp"
-	REDIS_ADDR          = "pastey-redis:6379"
-	REDIS_PASS          = ""
-	REDIS_DB            = 0
+	CONN_HOST  = "0.0.0.0"
+	CONN_PORT  = "3333"
+	CONN_TYPE  = "tcp"
+	REDIS_ADDR = "pastey-redis:6379"
+	REDIS_PASS = ""
+	REDIS_DB   = 0
 )
 
 var BLACKLISTED_PHRASES = [...]string{"Cookie: mstshash=Administ", "-esystem('cmd /c echo .close", "md /c echo Set xHttp=createobjec"}
@@ -94,7 +94,7 @@ func handleRequest(conn net.Conn, redisClient *redis.Client) {
 
 		bytesRead += n
 
-		if bytesRead > 250000 {
+		if bytesRead > 950000 {
 			conn.Write([]byte("payload too big\r\n"))
 			conn.Close()
 
