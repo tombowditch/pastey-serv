@@ -172,7 +172,7 @@ func handleRequest(conn net.Conn, redisClient *redis.Client) {
 
 	fmt.Println("made new paste " + identifier + " for " + conn.RemoteAddr().String())
 
-	conn.Write([]byte("https://bind.sh/" + identifier + "\r\n"))
+	conn.Write([]byte("https://ig.lc/" + identifier + "\r\n"))
 	conn.Close()
 }
 
