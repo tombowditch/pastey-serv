@@ -21,8 +21,9 @@ const (
 	REDIS_ADDR          = "pastey-redis:6379"
 	REDIS_PASS          = ""
 	REDIS_DB            = 0
-	BLACKLISTED_PHRASES = []string{"Cookie: mstshash=Administ", "-esystem('cmd /c echo .close", "md /c echo Set xHttp=createobjec"}
 )
+
+var BLACKLISTED_PHRASES = [...]string{"Cookie: mstshash=Administ", "-esystem('cmd /c echo .close", "md /c echo Set xHttp=createobjec"}
 
 func main() {
 	l, err := net.Listen(CONN_TYPE, CONN_HOST+":"+CONN_PORT)
@@ -82,7 +83,7 @@ func handleRequest(conn net.Conn, redisClient *redis.Client) {
 	for {
 		n, err := conn.Read(buf)
 		if err != nil {
-			if err != io.EOF && !strings.Contains(err.Error(), "i/o timeout") {
+			if netErr, _ := err.(net.Error); err != io.EOF && !netErr.Timeout() {
 				fmt.Println("read error:", err)
 				conn.Write([]byte("read err\r\n"))
 				conn.Close()
