@@ -1,0 +1,4 @@
+github.com/go-redis/redis v6.15.9+incompatible h1:K0pv1D7EQUjfyoMql+r/jZqCLizCGKFlFgcHWWmHQjg=
+github.com/go-redis/redis v6.15.9+incompatible/go.mod h1:NAIEuMOZ/fxfXJIrKDQDz8wamY7mA7PouImQ2Jvg6kA=
+github.com/wallstreetcn/rate v0.0.0-20170602052110-062ff4817e93 h1:3yVaCx6JVnz0p4mNqNFheHCJ/ZrdWqvjVPmDwL7H8Xg=
+github.com/wallstreetcn/rate v0.0.0-20170602052110-062ff4817e93/go.mod h1:Iw3Em2lWQYM7L5rkUuicsr9djCm230mGI12+hOa/3Rg=

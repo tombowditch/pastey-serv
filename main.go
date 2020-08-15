@@ -18,7 +18,6 @@ const (
 	CONN_HOST  = "0.0.0.0"
 	CONN_PORT  = "3333"
 	CONN_TYPE  = "tcp"
-	REDIS_ADDR = "pastey-redis:6379"
 	REDIS_PASS = ""
 	REDIS_DB   = 0
 )
@@ -35,7 +34,7 @@ func main() {
 	fmt.Println("Listening on " + CONN_HOST + ":" + CONN_PORT)
 
 	client := redis.NewClient(&redis.Options{
-		Addr:     REDIS_ADDR,
+		Addr:     os.Getenv("REDIS_URI"),
 		Password: REDIS_PASS,
 		DB:       REDIS_DB,
 	})
