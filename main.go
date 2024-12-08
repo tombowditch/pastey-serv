@@ -6,9 +6,8 @@ import (
 	"io"
 	"net"
 	"os"
-	"time"
-
 	"strings"
+	"time"
 
 	"github.com/go-redis/redis"
 	rate "github.com/wallstreetcn/rate/redis"
@@ -16,7 +15,7 @@ import (
 
 const (
 	CONN_HOST  = "0.0.0.0"
-	CONN_PORT  = "3333"
+	CONN_PORT  = "9999"
 	CONN_TYPE  = "tcp"
 	REDIS_PASS = ""
 	REDIS_DB   = 0
@@ -40,7 +39,7 @@ func main() {
 	})
 
 	rate.SetRedis(&rate.ConfigRedis{
-		Host: "pastey-redis",
+		Host: os.Getenv("REDIS_URI"),
 		Port: 6379,
 		Auth: "",
 	})
@@ -102,8 +101,7 @@ func handleRequest(conn net.Conn, redisClient *redis.Client) {
 
 		msg = append(msg, buf[:n]...)
 
-		conn.SetReadDeadline(time.Now().Add(time.Second * 5))
-
+		conn.SetReadDeadline(time.Now().Add(time.Second * 2))
 	}
 
 	identifier := ""
@@ -111,7 +109,6 @@ func handleRequest(conn net.Conn, redisClient *redis.Client) {
 	for {
 		identifier = randString(4)
 		val, err := redisClient.Get("pastey_" + identifier).Result()
-
 		if err != nil {
 			if err == redis.Nil {
 				// value doesn't exist
@@ -134,7 +131,7 @@ func handleRequest(conn net.Conn, redisClient *redis.Client) {
 		fmt.Println("identifier mismatch")
 
 		if tried > 5 {
-			//we cant be that unlucky, fail
+			// we cant be that unlucky, fail
 			break
 		}
 	}
@@ -157,7 +154,7 @@ func handleRequest(conn net.Conn, redisClient *redis.Client) {
 	}
 
 	if blacklisted {
-		conn.Write([]byte("blacklisted phrases, antispam system\r\ncontact admin@bind.sh if this is in error\r\n"))
+		conn.Write([]byte("blacklisted phrases, antispam system\r\ncontact admin@ig.lc if this is in error\r\n"))
 		conn.Close()
 		return
 	}
@@ -178,7 +175,7 @@ func handleRequest(conn net.Conn, redisClient *redis.Client) {
 
 func randString(n int) string {
 	const alphanum = "123456789abcdefghijklmnopqrstuvwxyz"
-	var bytes = make([]byte, n)
+	bytes := make([]byte, n)
 	rand.Read(bytes)
 	for i, b := range bytes {
 		bytes[i] = alphanum[b%byte(len(alphanum))]
