@@ -167,7 +167,7 @@ func handleRequest(conn net.Conn) {
 	identifier := ""
 	tried := 0
 	for {
-		identifier = randString(4)
+		identifier = randString(7)
 		val, err := client.Get("pastey_" + identifier).Result()
 		if err != nil {
 			if err == redis.Nil {
