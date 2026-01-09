@@ -107,7 +107,7 @@ too much data`))
 
 func getIdentifier(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	// Rate limit: 1 request per second per IP
-	cip := strings.Split(r.RemoteAddr, ":")[0]
+	cip, _, _ := net.SplitHostPort(r.RemoteAddr)
 	limiter := rate.NewLimiter(rate.Every(time.Second), 1, "pastey_http_rl_"+cip)
 	if !limiter.Allow() {
 		w.Header().Set("Content-Type", "text/plain")
