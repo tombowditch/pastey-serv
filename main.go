@@ -124,7 +124,10 @@ func getIdentifier(w http.ResponseWriter, r *http.Request, ps httprouter.Params)
 
 func createPaste(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	// Rate limit: 1 paste per 5 seconds per IP
-	cip, _, _ := net.SplitHostPort(r.RemoteAddr)
+	cip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		cip = r.RemoteAddr // fallback if parsing fails
+	}
 	limiter := rate.NewLimiter(rate.Every(time.Second*5), 1, "pastey_http_create_rl_"+cip)
 	if !limiter.Allow() {
 		w.Header().Set("Content-Type", "text/plain")
@@ -141,7 +144,6 @@ func createPaste(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		w.Write([]byte("error reading body"))
 		return
 	}
-	defer r.Body.Close()
 
 	if len(body) > 5000000 {
 		w.Header().Set("Content-Type", "text/plain")
@@ -173,52 +175,36 @@ func createPaste(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		idLength = 32
 	}
 
-	// Generate unique identifier
-	identifier := ""
-	tried := 0
-	for {
+	// Generate unique identifier and store atomically using SetNX
+	var identifier string
+	for tried := 0; tried < 10; tried++ {
 		identifier = randString(idLength)
-		val, err := client.Get("pastey_" + identifier).Result()
+		// SetNX atomically sets key only if it doesn't exist, avoiding TOCTOU race
+		ok, err := client.SetNX("pastey_"+identifier, string(body), time.Hour*72).Result()
 		if err != nil {
-			if err == redis.Nil {
-				break
-			}
 			w.Header().Set("Content-Type", "text/plain")
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte("error"))
 			return
 		}
-		if val == "" {
-			break
+		if ok {
+			// Successfully stored with unique identifier
+			logrus.WithFields(logrus.Fields{
+				"identifier": identifier,
+				"remote":     r.RemoteAddr,
+			}).Info("created paste via HTTP POST")
+			w.Header().Set("Content-Type", "text/plain")
+			w.WriteHeader(http.StatusCreated)
+			w.Write([]byte("https://ig.lc/" + identifier + "\n"))
+			return
 		}
-		identifier = ""
-		tried++
-		if tried > 5 {
-			break
-		}
+		// Collision, try again
 	}
 
-	if identifier == "" {
-		w.Header().Set("Content-Type", "text/plain")
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("could not generate identifier"))
-		return
-	}
-
-	// Store paste
-	result := client.Set("pastey_"+identifier, string(body), time.Hour*72)
-	if result.Err() != nil {
-		w.Header().Set("Content-Type", "text/plain")
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("error, could not connect to db"))
-		return
-	}
-
-	fmt.Println("made new paste " + identifier + " via HTTP POST from " + r.RemoteAddr)
-
+	// Failed to generate unique identifier after retries
 	w.Header().Set("Content-Type", "text/plain")
-	w.WriteHeader(http.StatusCreated)
-	w.Write([]byte("https://ig.lc/" + identifier + "\n"))
+	w.WriteHeader(http.StatusInternalServerError)
+	w.Write([]byte("could not generate identifier"))
 }
 
 func handleRequest(conn net.Conn) {
