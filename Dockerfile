@@ -4,12 +4,12 @@ RUN apk update && apk add --no-cache git ca-certificates tzdata && update-ca-cer
 
 RUN adduser -D -g '' appuser
 
-WORKDIR $GOPATH/src/github.com/pastey-serv
+WORKDIR /app
 COPY . .
 
-RUN go get -d -v
+RUN go mod download
 
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -a -installsuffix cgo -o /go/bin/app .
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -a -installsuffix cgo -o /go/bin/app ./cmd/pastey
 
 FROM scratch
 
