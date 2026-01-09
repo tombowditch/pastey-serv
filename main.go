@@ -124,8 +124,8 @@ func getIdentifier(w http.ResponseWriter, r *http.Request, ps httprouter.Params)
 
 func createPaste(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	// Rate limit: 1 paste per 5 seconds per IP
-	cip := strings.Split(r.RemoteAddr, ":")[0]
-	limiter := rate.NewLimiter(rate.Every(time.Second*5), 5, "pastey_http_create_rl_"+cip)
+	cip, _, _ := net.SplitHostPort(r.RemoteAddr)
+	limiter := rate.NewLimiter(rate.Every(time.Second*5), 1, "pastey_http_create_rl_"+cip)
 	if !limiter.Allow() {
 		w.Header().Set("Content-Type", "text/plain")
 		w.WriteHeader(http.StatusTooManyRequests)
