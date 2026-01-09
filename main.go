@@ -5,11 +5,14 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/go-redis/redis"
+	"github.com/julienschmidt/httprouter"
+	"github.com/sirupsen/logrus"
 	rate "github.com/wallstreetcn/rate/redis"
 )
 
@@ -23,16 +26,10 @@ const (
 
 var BLACKLISTED_PHRASES = [...]string{"Cookie: mstshash=Administ", "-esystem('cmd /c echo .close", "md /c echo Set xHttp=createobjec"}
 
-func main() {
-	l, err := net.Listen(CONN_TYPE, CONN_HOST+":"+CONN_PORT)
-	if err != nil {
-		fmt.Println("Error listening:", err.Error())
-		os.Exit(1)
-	}
-	defer l.Close()
-	fmt.Println("Listening on " + CONN_HOST + ":" + CONN_PORT)
+var client *redis.Client
 
-	client := redis.NewClient(&redis.Options{
+func main() {
+	client = redis.NewClient(&redis.Options{
 		Addr:     os.Getenv("REDIS_URI"),
 		Password: REDIS_PASS,
 		DB:       REDIS_DB,
@@ -44,12 +41,38 @@ func main() {
 		Auth: "",
 	})
 
-	_, err = client.Ping().Result()
+	_, err := client.Ping().Result()
 	if err != nil {
 		fmt.Println("could not connect to redis")
 		os.Exit(1)
 	}
 	fmt.Println("Connected to redis")
+
+	// Start TCP server
+	go startTCPServer()
+
+	// Start HTTP server
+	logrus.Info("starting http server...")
+
+	r := httprouter.New()
+
+	r.GET("/", indexPage)
+	r.GET("/:identifier", getIdentifier)
+
+	if err := http.ListenAndServe("0.0.0.0:3334", r); err != nil {
+		logrus.Error(err.Error())
+		os.Exit(1)
+	}
+}
+
+func startTCPServer() {
+	l, err := net.Listen(CONN_TYPE, CONN_HOST+":"+CONN_PORT)
+	if err != nil {
+		fmt.Println("Error listening:", err.Error())
+		os.Exit(1)
+	}
+	defer l.Close()
+	fmt.Println("Listening on " + CONN_HOST + ":" + CONN_PORT)
 
 	for {
 		conn, err := l.Accept()
@@ -57,11 +80,48 @@ func main() {
 			fmt.Println("Error accepting: ", err.Error())
 			os.Exit(1)
 		}
-		go handleRequest(conn, client)
+		go handleRequest(conn)
 	}
 }
 
-func handleRequest(conn net.Conn, redisClient *redis.Client) {
+func indexPage(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	w.Header().Set("Content-Type", "text/plain")
+	w.Write([]byte(`ig.lc - commandline pastebin
+
+pipe to 'nc ig.lc 9999'
+
+- pastes are stored for 72 hours, after which they are automatically deleted
+
+example
+=======
+
+~> echo "hello" | nc ig.lc 9999
+https://ig.lc/yourpaste
+
+~> cat /etc/nginx/nginx.conf | nc ig.lc 9999
+https://ig.lc/yourpaste
+
+~> cat 100mb.bin | nc ig.lc 9999
+too much data`))
+}
+
+func getIdentifier(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	identifier := ps.ByName("identifier")
+
+	val, _ := client.Get("pastey_" + identifier).Result()
+
+	if val != "" {
+		// yea
+		w.Header().Set("Content-Type", "text/plain")
+		w.Write([]byte(val))
+	} else {
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte("not found or expired"))
+	}
+}
+
+func handleRequest(conn net.Conn) {
 	msg := make([]byte, 0)
 	buf := make([]byte, 1024)
 	bytesRead := 0
@@ -108,7 +168,7 @@ func handleRequest(conn net.Conn, redisClient *redis.Client) {
 	tried := 0
 	for {
 		identifier = randString(4)
-		val, err := redisClient.Get("pastey_" + identifier).Result()
+		val, err := client.Get("pastey_" + identifier).Result()
 		if err != nil {
 			if err == redis.Nil {
 				// value doesn't exist
@@ -159,7 +219,7 @@ func handleRequest(conn net.Conn, redisClient *redis.Client) {
 		return
 	}
 
-	err := redisClient.Set("pastey_"+identifier, string(msg), time.Hour*72)
+	err := client.Set("pastey_"+identifier, string(msg), time.Hour*72)
 
 	if err.Err() != nil {
 		conn.Write([]byte("error, could not connect to db\r\n"))
