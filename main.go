@@ -152,7 +152,7 @@ func handleRequest(conn net.Conn) {
 
 		bytesRead += n
 
-		if bytesRead > 950000 {
+		if bytesRead > 5000000 {
 			conn.Write([]byte("payload too big\r\n"))
 			conn.Close()
 
