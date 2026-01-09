@@ -78,7 +78,7 @@ func startTCPServer() {
 		conn, err := l.Accept()
 		if err != nil {
 			fmt.Println("Error accepting: ", err.Error())
-			os.Exit(1)
+			continue
 		}
 		go handleRequest(conn)
 	}
