@@ -2,17 +2,18 @@ package main
 
 import (
 	"crypto/rand"
-	"fmt"
 	"io"
+	"log/slog"
+	"math/big"
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/go-redis/redis"
 	"github.com/julienschmidt/httprouter"
-	"github.com/sirupsen/logrus"
 	rate "github.com/wallstreetcn/rate/redis"
 )
 
@@ -22,37 +23,70 @@ const (
 	CONN_TYPE  = "tcp"
 	REDIS_PASS = ""
 	REDIS_DB   = 0
+
+	ID_LENGTH        = 7
+	ID_LENGTH_SECURE = 32
 )
 
 var BLACKLISTED_PHRASES = [...]string{"Cookie: mstshash=Administ", "-esystem('cmd /c echo .close", "md /c echo Set xHttp=createobjec"}
 
 var client *redis.Client
 
+// parseRedisURI parses a Redis URI in the form "host:port" and returns host and port separately.
+// This is needed because the rate limiter package takes host and port as separate config fields.
+func parseRedisURI(uri string) (host string, port int) {
+	host = "localhost"
+	port = 6379
+
+	if uri == "" {
+		return
+	}
+
+	parts := strings.Split(uri, ":")
+	if len(parts) >= 1 {
+		host = parts[0]
+	}
+	if len(parts) >= 2 {
+		if p, err := strconv.Atoi(parts[1]); err == nil {
+			port = p
+		}
+	}
+	return
+}
+
 func main() {
+	redisURI := os.Getenv("REDIS_URI")
+
 	client = redis.NewClient(&redis.Options{
-		Addr:     os.Getenv("REDIS_URI"),
+		Addr:     redisURI,
 		Password: REDIS_PASS,
 		DB:       REDIS_DB,
 	})
 
-	rate.SetRedis(&rate.ConfigRedis{
-		Host: os.Getenv("REDIS_URI"),
-		Port: 6379,
-		Auth: "",
-	})
+	// Initialize rate limiter with parsed host/port
+	// Note: This creates a separate Redis connection (rate limiter limitation)
+	redisHost, redisPort := parseRedisURI(redisURI)
+	if err := rate.SetRedis(&rate.ConfigRedis{
+		Host: redisHost,
+		Port: redisPort,
+		Auth: REDIS_PASS,
+	}); err != nil {
+		slog.Error("could not initialize rate limiter", "error", err)
+		os.Exit(1)
+	}
 
 	_, err := client.Ping().Result()
 	if err != nil {
-		fmt.Println("could not connect to redis")
+		slog.Error("could not connect to redis", "error", err)
 		os.Exit(1)
 	}
-	fmt.Println("Connected to redis")
+	slog.Info("connected to redis")
 
 	// Start TCP server
 	go startTCPServer()
 
 	// Start HTTP server
-	logrus.Info("starting http server...")
+	slog.Info("starting http server", "addr", "0.0.0.0:3334")
 
 	r := httprouter.New()
 
@@ -61,7 +95,7 @@ func main() {
 	r.POST("/create", createPaste)
 
 	if err := http.ListenAndServe("0.0.0.0:3334", r); err != nil {
-		logrus.Error(err.Error())
+		slog.Error("http server failed", "error", err)
 		os.Exit(1)
 	}
 }
@@ -69,20 +103,44 @@ func main() {
 func startTCPServer() {
 	l, err := net.Listen(CONN_TYPE, CONN_HOST+":"+CONN_PORT)
 	if err != nil {
-		fmt.Println("Error listening:", err.Error())
+		slog.Error("error listening", "error", err)
 		os.Exit(1)
 	}
 	defer l.Close()
-	fmt.Println("Listening on " + CONN_HOST + ":" + CONN_PORT)
+	slog.Info("tcp server listening", "addr", CONN_HOST+":"+CONN_PORT)
 
 	for {
 		conn, err := l.Accept()
 		if err != nil {
-			fmt.Println("Error accepting: ", err.Error())
+			slog.Error("error accepting connection", "error", err)
 			continue
 		}
 		go handleRequest(conn)
 	}
+}
+
+// getClientIP extracts the real client IP, checking X-Forwarded-For first
+func getClientIP(r *http.Request) string {
+	// Check X-Forwarded-For header (first IP is the original client)
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		// X-Forwarded-For can be comma-separated list: client, proxy1, proxy2
+		if idx := strings.Index(xff, ","); idx != -1 {
+			return strings.TrimSpace(xff[:idx])
+		}
+		return strings.TrimSpace(xff)
+	}
+
+	// Check X-Real-IP header
+	if xri := r.Header.Get("X-Real-IP"); xri != "" {
+		return strings.TrimSpace(xri)
+	}
+
+	// Fall back to RemoteAddr
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return ip
 }
 
 func indexPage(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
@@ -108,7 +166,7 @@ too much data`))
 
 func getIdentifier(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	// Rate limit: 1 request per second per IP
-	cip, _, _ := net.SplitHostPort(r.RemoteAddr)
+	cip := getClientIP(r)
 	limiter := rate.NewLimiter(rate.Every(time.Second), 1, "pastey_http_rl_"+cip)
 	if !limiter.Allow() {
 		w.Header().Set("Content-Type", "text/plain")
@@ -119,10 +177,12 @@ func getIdentifier(w http.ResponseWriter, r *http.Request, ps httprouter.Params)
 
 	identifier := ps.ByName("identifier")
 
-	val, _ := client.Get("pastey_" + identifier).Result()
+	val, err := client.Get("pastey_" + identifier).Result()
+	if err != nil && err != redis.Nil {
+		slog.Error("redis get failed", "error", err, "identifier", identifier)
+	}
 
 	if val != "" {
-		// yea
 		w.Header().Set("Content-Type", "text/plain")
 		w.Write([]byte(val))
 	} else {
@@ -133,11 +193,10 @@ func getIdentifier(w http.ResponseWriter, r *http.Request, ps httprouter.Params)
 }
 
 func createPaste(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	defer r.Body.Close()
+
 	// Rate limit: 1 paste per 5 seconds per IP
-	cip, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		cip = r.RemoteAddr // fallback if parsing fails
-	}
+	cip := getClientIP(r)
 	limiter := rate.NewLimiter(rate.Every(time.Second*5), 1, "pastey_http_create_rl_"+cip)
 	if !limiter.Allow() {
 		w.Header().Set("Content-Type", "text/plain")
@@ -179,10 +238,10 @@ func createPaste(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		}
 	}
 
-	// Determine identifier length: 32 chars if secure=true, otherwise 4
-	idLength := 4
+	// Determine identifier length: 32 chars if secure=true, otherwise 7
+	idLength := ID_LENGTH
 	if r.URL.Query().Get("secure") == "true" {
-		idLength = 32
+		idLength = ID_LENGTH_SECURE
 	}
 
 	// Generate unique identifier and store atomically using SetNX
@@ -192,6 +251,7 @@ func createPaste(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		// SetNX atomically sets key only if it doesn't exist, avoiding TOCTOU race
 		ok, err := client.SetNX("pastey_"+identifier, string(body), time.Hour*72).Result()
 		if err != nil {
+			slog.Error("redis setnx failed", "error", err)
 			w.Header().Set("Content-Type", "text/plain")
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte("error"))
@@ -199,10 +259,7 @@ func createPaste(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		}
 		if ok {
 			// Successfully stored with unique identifier
-			logrus.WithFields(logrus.Fields{
-				"identifier": identifier,
-				"remote":     r.RemoteAddr,
-			}).Info("created paste via HTTP POST")
+			slog.Info("created paste via HTTP POST", "identifier", identifier, "remote", cip)
 			w.Header().Set("Content-Type", "text/plain")
 			w.WriteHeader(http.StatusCreated)
 			w.Write([]byte("https://ig.lc/" + identifier + "\n"))
@@ -218,6 +275,8 @@ func createPaste(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 }
 
 func handleRequest(conn net.Conn) {
+	defer conn.Close()
+
 	msg := make([]byte, 0)
 	buf := make([]byte, 1024)
 	bytesRead := 0
@@ -226,9 +285,8 @@ func handleRequest(conn net.Conn) {
 	cip := strings.Split(conn.RemoteAddr().String(), ":")[0]
 	limiter := rate.NewLimiter(rate.Every(time.Second*5), 5, "pastey_rl_"+cip)
 	if !limiter.Allow() {
-		fmt.Println("rate limit exceeded for " + cip)
+		slog.Warn("rate limit exceeded", "ip", cip)
 		conn.Write([]byte("rate limit exceeded (1 paste per 5 seconds)\r\n"))
-		conn.Close()
 		return
 	}
 
@@ -237,10 +295,9 @@ func handleRequest(conn net.Conn) {
 	for {
 		n, err := conn.Read(buf)
 		if err != nil {
-			if netErr, _ := err.(net.Error); err != io.EOF && !netErr.Timeout() {
-				fmt.Println("read error:", err)
+			if netErr, ok := err.(net.Error); err != io.EOF && (!ok || !netErr.Timeout()) {
+				slog.Error("read error", "error", err, "ip", cip)
 				conn.Write([]byte("read err\r\n"))
-				conn.Close()
 				return
 			}
 			break
@@ -250,8 +307,6 @@ func handleRequest(conn net.Conn) {
 
 		if bytesRead > 5000000 {
 			conn.Write([]byte("payload too big\r\n"))
-			conn.Close()
-
 			return
 		}
 
@@ -260,81 +315,61 @@ func handleRequest(conn net.Conn) {
 		conn.SetReadDeadline(time.Now().Add(time.Second * 2))
 	}
 
-	identifier := ""
-	tried := 0
-	for {
-		identifier = randString(7)
-		val, err := client.Get("pastey_" + identifier).Result()
-		if err != nil {
-			if err == redis.Nil {
-				// value doesn't exist
-				break
-			} else if err != nil {
-				fmt.Println(err.Error())
-				conn.Write([]byte("error\r\n"))
-				conn.Close()
-				return
-			}
-		}
-
-		if val == "" {
-			break
-		}
-
-		identifier = ""
-
-		tried++
-		fmt.Println("identifier mismatch")
-
-		if tried > 5 {
-			// we cant be that unlucky, fail
-			break
-		}
-	}
-
-	if identifier == "" {
-		fmt.Println("identifier could not be genned") // you should never realistically run into this
-		conn.Write([]byte("error\r\n"))
-		conn.Close()
+	if len(msg) == 0 {
+		conn.Write([]byte("empty payload\r\n"))
 		return
 	}
-
-	// got identifier
 
 	// check if bad
-	blacklisted := false
 	for _, phrase := range BLACKLISTED_PHRASES {
 		if strings.Contains(string(msg), phrase) {
-			blacklisted = true
+			conn.Write([]byte("blacklisted phrases, antispam system\r\ncontact admin@ig.lc if this is in error\r\n"))
+			return
 		}
 	}
 
-	if blacklisted {
-		conn.Write([]byte("blacklisted phrases, antispam system\r\ncontact admin@ig.lc if this is in error\r\n"))
-		conn.Close()
-		return
+	// Generate unique identifier and store atomically using SetNX (fixes TOCTOU race)
+	var identifier string
+	for tried := 0; tried < 10; tried++ {
+		identifier = randString(ID_LENGTH)
+		// SetNX atomically sets key only if it doesn't exist
+		ok, err := client.SetNX("pastey_"+identifier, string(msg), time.Hour*72).Result()
+		if err != nil {
+			slog.Error("redis setnx failed", "error", err)
+			conn.Write([]byte("error, could not connect to db\r\n"))
+			return
+		}
+		if ok {
+			// Successfully stored with unique identifier
+			slog.Info("created paste via TCP", "identifier", identifier, "remote", cip)
+			conn.Write([]byte("https://ig.lc/" + identifier + "\r\n"))
+			return
+		}
+		// Collision, try again
+		slog.Debug("identifier collision, retrying", "identifier", identifier)
 	}
 
-	err := client.Set("pastey_"+identifier, string(msg), time.Hour*72)
-
-	if err.Err() != nil {
-		conn.Write([]byte("error, could not connect to db\r\n"))
-		conn.Close()
-		return
-	}
-
-	fmt.Println("made new paste " + identifier + " for " + conn.RemoteAddr().String())
-
-	conn.Write([]byte("https://ig.lc/" + identifier + "\r\n"))
-	conn.Close()
+	// Failed to generate unique identifier after retries
+	slog.Error("could not generate unique identifier after retries")
+	conn.Write([]byte("error\r\n"))
 }
 
+// randString generates a random string of length n using crypto/rand
+// without modulo bias
 func randString(n int) string {
 	const alphanum = "123456789abcdefghijklmnopqrstuvwxyz"
-	bytes := make([]byte, n)
-	rand.Read(bytes)
-	for i, b := range bytes {
-		bytes[i] = alphanum[b%byte(len(alphanum))]
+	result := make([]byte, n)
+	max := big.NewInt(int64(len(alphanum)))
+
+	for i := 0; i < n; i++ {
+		num, err := rand.Int(rand.Reader, max)
+		if err != nil {
+			// Fallback: this should never happen with crypto/rand
+			slog.Error("crypto/rand failed", "error", err)
+			result[i] = alphanum[0]
+			continue
+		}
+		result[i] = alphanum[num.Int64()]
 	}
-	return string(bytes)
+	return string(result)
 }
