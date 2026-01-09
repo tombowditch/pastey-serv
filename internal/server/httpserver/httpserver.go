@@ -149,23 +149,26 @@ func (s *Server) createPaste(w http.ResponseWriter, r *http.Request, _ httproute
 	w.Write([]byte("could not generate identifier"))
 }
 
-// getClientIP extracts the real client IP, checking X-Forwarded-For first.
+// getClientIP extracts the real client IP.
+// Only trusts X-Forwarded-For and X-Real-IP headers if config.TrustProxy() is true.
 func getClientIP(r *http.Request) string {
-	// Check X-Forwarded-For header (first IP is the original client)
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		// X-Forwarded-For can be comma-separated list: client, proxy1, proxy2
-		if idx := strings.Index(xff, ","); idx != -1 {
-			return strings.TrimSpace(xff[:idx])
+	if config.TrustProxy() {
+		// Check X-Forwarded-For header (first IP is the original client)
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			// X-Forwarded-For can be comma-separated list: client, proxy1, proxy2
+			if idx := strings.Index(xff, ","); idx != -1 {
+				return strings.TrimSpace(xff[:idx])
+			}
+			return strings.TrimSpace(xff)
 		}
-		return strings.TrimSpace(xff)
+
+		// Check X-Real-IP header
+		if xri := r.Header.Get("X-Real-IP"); xri != "" {
+			return strings.TrimSpace(xri)
+		}
 	}
 
-	// Check X-Real-IP header
-	if xri := r.Header.Get("X-Real-IP"); xri != "" {
-		return strings.TrimSpace(xri)
-	}
-
-	// Fall back to RemoteAddr
+	// Use RemoteAddr directly
 	ip, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr

@@ -1,6 +1,9 @@
 package config
 
-import "time"
+import (
+	"os"
+	"time"
+)
 
 const (
 	// Server addresses
@@ -23,6 +26,13 @@ const (
 	// Base URL for paste links
 	BaseURL = "https://ig.lc/"
 )
+
+// TrustProxy returns true if X-Forwarded-For and X-Real-IP headers should be trusted.
+// Set TRUST_PROXY=true when running behind a reverse proxy (nginx, Cloudflare, etc.).
+// Defaults to false for security — untrusted headers can be spoofed to bypass rate limiting.
+func TrustProxy() bool {
+	return os.Getenv("TRUST_PROXY") == "true"
+}
 
 // BlacklistedPhrases contains spam/attack patterns to reject.
 var BlacklistedPhrases = []string{
